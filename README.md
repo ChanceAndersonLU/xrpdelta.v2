@@ -1,4 +1,4 @@
-\# XRP Delta v2 - Real-Time Cryptocurrency Arbitrage Analyzer
+ XRP Delta v2 - Real-Time Cryptocurrency Arbitrage Analyzer
 
 
 
@@ -10,13 +10,13 @@ XRP Delta v2 is a sophisticated real-time arbitrage analysis tool that monitors 
 
 
 
-\##  Core Features
+Core Features
 
 
 
-\- \*\*Real-Time Price Monitoring\*\*: Continuously tracks XRP prices across 7+ major cryptocurrency exchanges
+Real-Time Price Monitoring: Continuously tracks XRP prices across 7+ major cryptocurrency exchanges
 
-\- \*\*Intelligent Arbitrage Detection\*\*: Automatically identifies profitable trading opportunities with precision calculations
+Intelligent Arbitrage Detection\*\*: Automatically identifies profitable trading opportunities with precision calculations
 
 \- \*\*Multi-Exchange Coverage\*\*: Monitors Kraken, Bitstamp, Bitfinex, Gemini, Huobi, OKX, and KuCoin
 
