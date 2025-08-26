@@ -5,34 +5,61 @@ from datetime import datetime
 
 class XRPDataCollector:
     def __init__(self):
-        # Initialize exchanges (these don't require API keys for public data)
+        # Initialize exchanges with proper configurations
         self.exchanges = {
-            'binance': ccxt.binance(),
-            'coinbase': ccxt.coinbase(),
-            'kraken': ccxt.kraken(),
-            'bitstamp': ccxt.bitstamp()
+            'binance': ccxt.binance({
+                'sandbox': False,
+                'rateLimit': 1200,  # Slower rate limit
+                'enableRateLimit': True,
+            }),
+            'coinbase': ccxt.coinbase({
+                'sandbox': False,
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            }),
+            'kraken': ccxt.kraken({
+                'rateLimit': 3000,
+                'enableRateLimit': True,
+            }),
+            'bitstamp': ccxt.bitstamp({
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            })
         }
         
-        # XRP trading pairs to check
-        self.symbol = 'XRP/USDT'
-        self.symbol_alt = 'XRP/USD'  # Some exchanges use USD instead of USDT
+        # XRP trading pairs to check - different exchanges use different symbols
+        self.exchange_symbols = {
+            'binance': ['XRP/USDT', 'XRP/BUSD'],
+            'coinbase': ['XRP/USD', 'XRP/USDT'],
+            'kraken': ['XRP/USD', 'XRP/USDT'],
+            'bitstamp': ['XRP/USD', 'XRP/EUR']
+        }
     
     def get_price_from_exchange(self, exchange_name, exchange_obj):
         """Get XRP price from a single exchange"""
         try:
-            # Try USDT first, then USD
+            # Get available symbols for this exchange
+            symbols_to_try = self.exchange_symbols.get(exchange_name, ['XRP/USDT', 'XRP/USD'])
+            
             ticker = None
             symbol_used = None
             
-            try:
-                ticker = exchange_obj.fetch_ticker(self.symbol)
-                symbol_used = self.symbol
-            except:
+            # Try each symbol until one works
+            for symbol in symbols_to_try:
                 try:
-                    ticker = exchange_obj.fetch_ticker(self.symbol_alt)
-                    symbol_used = self.symbol_alt
-                except:
-                    return None
+                    # Load markets first to ensure symbol exists
+                    exchange_obj.load_markets()
+                    
+                    if symbol in exchange_obj.markets:
+                        ticker = exchange_obj.fetch_ticker(symbol)
+                        symbol_used = symbol
+                        break
+                except Exception as e:
+                    print(f"  Failed to fetch {symbol} from {exchange_name}: {str(e)[:50]}...")
+                    continue
+            
+            if ticker is None:
+                return None
             
             return {
                 'exchange': exchange_name,
@@ -44,7 +71,7 @@ class XRPDataCollector:
             }
             
         except Exception as e:
-            print(f"Error fetching from {exchange_name}: {str(e)}")
+            print(f"Error fetching from {exchange_name}: {str(e)[:100]}...")
             return None
     
     def fetch_all_prices(self):

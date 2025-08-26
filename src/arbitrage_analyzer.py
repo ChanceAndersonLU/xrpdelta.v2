@@ -1,132 +1,131 @@
+import ccxt
 import pandas as pd
-from data_collector import XRPDataCollector
+import time
+from datetime import datetime
 
-class ArbitrageAnalyzer:
+class XRPDataCollector:
     def __init__(self):
-        # Typical exchange fees (trading fees + withdrawal fees)
-        # These are estimates - you should check actual fees for your account tier
-        self.exchange_fees = {
-            'binance': 0.001,   # 0.1% trading fee
-            'coinbase': 0.005,  # 0.5% trading fee  
-            'kraken': 0.0026,   # 0.26% trading fee
-            'bitstamp': 0.005   # 0.5% trading fee
+        # Initialize exchanges with proper configurations
+        # Using more reliable exchanges with good API access
+        self.exchanges = {
+            'kraken': ccxt.kraken({
+                'rateLimit': 3000,
+                'enableRateLimit': True,
+            }),
+            'bitstamp': ccxt.bitstamp({
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            }),
+            'bitfinex': ccxt.bitfinex({
+                'rateLimit': 1500,
+                'enableRateLimit': True,
+            }),
+            'gemini': ccxt.gemini({
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            }),
+            'huobi': ccxt.huobi({
+                'rateLimit': 2000,
+                'enableRateLimit': True,
+            }),
+            'okx': ccxt.okx({
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            }),
+            'kucoin': ccxt.kucoin({
+                'rateLimit': 1000,
+                'enableRateLimit': True,
+            })
         }
         
-        # Minimum profit threshold (as percentage)
-        self.min_profit_threshold = 0.002  # 0.2%
+        # XRP trading pairs to check - different exchanges use different symbols
+        self.exchange_symbols = {
+            'kraken': ['XRP/USD', 'XRP/USDT'],
+            'bitstamp': ['XRP/USD', 'XRP/EUR'],
+            'bitfinex': ['XRP/USD', 'XRP/USDT'],
+            'gemini': ['XRP/USD'],
+            'huobi': ['XRP/USDT', 'XRP/USD'],
+            'okx': ['XRP/USDT', 'XRP/USD'],
+            'kucoin': ['XRP/USDT', 'XRP/USD']
+        }
     
-    def calculate_arbitrage_opportunities(self, prices_df):
-        """Find arbitrage opportunities between exchanges"""
-        if len(prices_df) < 2:
-            print("Need at least 2 exchanges to find arbitrage opportunities")
-            return pd.DataFrame()
-        
-        opportunities = []
-        
-        # Compare every exchange pair
-        for i in range(len(prices_df)):
-            for j in range(i + 1, len(prices_df)):
-                buy_exchange = prices_df.iloc[i]
-                sell_exchange = prices_df.iloc[j]
-                
-                # Scenario 1: Buy from exchange i, sell on exchange j
-                opportunity1 = self._calculate_opportunity(buy_exchange, sell_exchange)
-                if opportunity1:
-                    opportunities.append(opportunity1)
-                
-                # Scenario 2: Buy from exchange j, sell on exchange i  
-                opportunity2 = self._calculate_opportunity(sell_exchange, buy_exchange)
-                if opportunity2:
-                    opportunities.append(opportunity2)
-        
-        if opportunities:
-            return pd.DataFrame(opportunities).sort_values('profit_percentage', ascending=False)
-        else:
-            return pd.DataFrame()
-    
-    def _calculate_opportunity(self, buy_exchange, sell_exchange):
-        """Calculate profit for buying from one exchange and selling on another"""
-        buy_price = buy_exchange['ask']  # Price to buy (ask price)
-        sell_price = sell_exchange['bid']  # Price to sell (bid price)
-        
-        buy_fee = self.exchange_fees.get(buy_exchange['exchange'], 0.005)
-        sell_fee = self.exchange_fees.get(sell_exchange['exchange'], 0.005)
-        
-        # Calculate costs
-        buy_cost = buy_price * (1 + buy_fee)  # Price + trading fee
-        sell_revenue = sell_price * (1 - sell_fee)  # Price - trading fee
-        
-        # Calculate profit
-        profit_per_xrp = sell_revenue - buy_cost
-        profit_percentage = (profit_per_xrp / buy_cost) * 100
-        
-        # Only return if profitable and above threshold
-        if profit_percentage > (self.min_profit_threshold * 100):
+    def get_price_from_exchange(self, exchange_name, exchange_obj):
+        """Get XRP price from a single exchange"""
+        try:
+            # Get available symbols for this exchange
+            symbols_to_try = self.exchange_symbols.get(exchange_name, ['XRP/USDT', 'XRP/USD'])
+            
+            ticker = None
+            symbol_used = None
+            
+            # Try each symbol until one works
+            for symbol in symbols_to_try:
+                try:
+                    # Load markets first to ensure symbol exists
+                    exchange_obj.load_markets()
+                    
+                    if symbol in exchange_obj.markets:
+                        ticker = exchange_obj.fetch_ticker(symbol)
+                        symbol_used = symbol
+                        break
+                except Exception as e:
+                    print(f"  Failed to fetch {symbol} from {exchange_name}: {str(e)[:50]}...")
+                    continue
+            
+            if ticker is None:
+                return None
+            
             return {
-                'buy_exchange': buy_exchange['exchange'],
-                'sell_exchange': sell_exchange['exchange'],
-                'buy_price': buy_price,
-                'sell_price': sell_price,
-                'buy_cost_with_fees': buy_cost,
-                'sell_revenue_with_fees': sell_revenue,
-                'profit_per_xrp': profit_per_xrp,
-                'profit_percentage': profit_percentage,
-                'potential_profit_100_xrp': profit_per_xrp * 100,
-                'potential_profit_1000_xrp': profit_per_xrp * 1000
+                'exchange': exchange_name,
+                'symbol': symbol_used,
+                'bid': ticker['bid'],  # Highest price buyers are willing to pay
+                'ask': ticker['ask'],  # Lowest price sellers are willing to accept
+                'last': ticker['last'],  # Last traded price
+                'timestamp': datetime.now()
             }
-        
-        return None
+            
+        except Exception as e:
+            print(f"Error fetching from {exchange_name}: {str(e)[:100]}...")
+            return None
     
-    def display_opportunities(self, opportunities_df):
-        """Display arbitrage opportunities in a readable format"""
-        if opportunities_df.empty:
-            print("No arbitrage opportunities found above the minimum threshold.")
-            print(f"Minimum profit threshold: {self.min_profit_threshold * 100:.2f}%")
-            return
+    def fetch_all_prices(self):
+        """Fetch XRP prices from all exchanges"""
+        prices = []
         
-        print("\n🚀 ARBITRAGE OPPORTUNITIES FOUND! 🚀")
-        print("=" * 60)
+        print("Fetching XRP prices from exchanges...")
         
-        for idx, opp in opportunities_df.iterrows():
-            print(f"\nOpportunity #{idx + 1}:")
-            print(f"📈 Buy XRP on {opp['buy_exchange'].upper()} at ${opp['buy_cost_with_fees']:.4f}")
-            print(f"📉 Sell XRP on {opp['sell_exchange'].upper()} at ${opp['sell_revenue_with_fees']:.4f}")
-            print(f"💰 Profit: {opp['profit_percentage']:.3f}% per XRP")
-            print(f"💵 With 100 XRP: ${opp['potential_profit_100_xrp']:.2f}")
-            print(f"💵 With 1000 XRP: ${opp['potential_profit_1000_xrp']:.2f}")
-            print("-" * 40)
+        for name, exchange in self.exchanges.items():
+            print(f"Checking {name}...")
+            price_data = self.get_price_from_exchange(name, exchange)
+            
+            if price_data:
+                prices.append(price_data)
+                print(f"✓ {name}: ${price_data['last']:.4f}")
+            else:
+                print(f"✗ {name}: Failed to fetch")
+            
+            # Small delay to avoid rate limits
+            time.sleep(0.5)
+        
+        return pd.DataFrame(prices)
     
-    def analyze_market(self):
-        """Main function to analyze the market for arbitrage"""
-        print("Starting XRP Arbitrage Analysis...")
+    def save_prices(self, prices_df, filename=None):
+        """Save prices to CSV file"""
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"xrp_prices_{timestamp}.csv"
         
-        # Fetch current prices
-        collector = XRPDataCollector()
-        prices = collector.fetch_all_prices()
-        
-        if prices.empty:
-            print("Could not fetch prices from any exchanges.")
-            return
-        
-        # Find arbitrage opportunities
-        opportunities = self.calculate_arbitrage_opportunities(prices)
-        
-        # Display results
-        self.display_opportunities(opportunities)
-        
-        # Show current market overview
-        print("\n📊 CURRENT MARKET OVERVIEW:")
-        print("=" * 40)
-        prices_sorted = prices.sort_values('last')
-        for idx, row in prices_sorted.iterrows():
-            print(f"{row['exchange'].upper()}: ${row['last']:.4f}")
-        
-        lowest = prices_sorted.iloc[0]['last']
-        highest = prices_sorted.iloc[-1]['last']
-        spread = ((highest - lowest) / lowest) * 100
-        print(f"\nPrice spread: {spread:.3f}%")
+        prices_df.to_csv(filename, index=False)
+        print(f"Prices saved to {filename}")
 
 # Example usage
 if __name__ == "__main__":
-    analyzer = ArbitrageAnalyzer()
-    analyzer.analyze_market() 
+    collector = XRPDataCollector()
+    prices = collector.fetch_all_prices()
+    
+    if not prices.empty:
+        print("\n--- Price Summary ---")
+        print(prices[['exchange', 'last', 'bid', 'ask']])
+        collector.save_prices(prices)
+    else:
+        print("No prices were fetched successfully.")
